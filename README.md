@@ -42,10 +42,13 @@ On Windows, the special file `%WINDIR%\system32\drivers\etc\HOSTS` can be used a
 ## FAQ
 
 **Q:** Can I run the server on a different PC on my network?
+
 **A:** The server binds only to the **localhost** address, for security. You would need to change `server_addr.sin_addr.s_addr` to allow all IPs (or specific ranges), and rebuild. Then instead of 127.0.0.1, specify the local IP of the server PC in the HOSTS file of the client system. To work beyond **localhost**, you would probably also need to approve the server in the Windows firewall.
 
 **Q:** Can I run it on a public server?
+
 **A:** **I strongly advise against it.** The code was deliberately written in a very simplistic way, and absolutely no effort was made to adhere to any security or availability standards. The only guarantee is that it correctly handles the expected traffic coming from the official Angry Birds PC games, which is limited to a very small set of specific requests. It is not intended to withstand heavy or malicious traffic. Of course, you may use the code as reference for writing a more robust solution, or integrating into an existing one.
 
 **Q:** Is this piracy?
+
 **A:** This is reverse-engineering, conducted using only free and publicly available tools for network packet inspection. Rovio had chosen not to obfuscate the traffic or the algorithm, so there was no cracking or decryption involved. Furthermore, for years, Rovio had silently allowed any copy of their games to be activated for free at any time. This server merely reproduces that behavior. The purpose is to enable the users who purchased the games to reactivate them, should they lose the original installation or need to move them to a different machine. As a side effect, it will also allow users who did not pay for the games to activate them, but that is the choice of the individual.
