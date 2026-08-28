@@ -12,6 +12,69 @@
 #define DEFAULT_PORT 80
 #define BUFFER_SIZE  8192
 
+// Reward payload tuples
+struct RewardTuple {
+    const char* promo_code;
+    const char* type_val;
+    const char* item_val;
+};
+
+// Game-tier containers for rewards
+struct GameRewards {
+    const char* game_type;
+    const RewardTuple* rewards;
+    int rewards_count;
+};
+
+// Define the sub-arrays for each game type first
+const RewardTuple RVMS2013AC_REWARDS[] = {
+    {"SUPERSEEDXX", "RVMS2013AC", "rovio-ad-codes-2"}
+};
+
+const RewardTuple HSBR2012TS_REWARDS[] = {
+    {"BONUSLEVELX", "HSBR2012",   "bonus"},
+    {"PATHOFJEDIX", "HSBR2012",   "dagobah"},
+    {"ONEFALCONXX", "HSBR2012",   "falcon"},
+    {"BOBAFETTXXX", "HSBR2012",   "bobafett"}
+};
+
+const RewardTuple HSBR2013TS_REWARDS[] = {
+    {"CREDITTIERA", "HSBR2013TS", "cred-tier1"},
+    {"HASBROCODEA", "HSBR2013TS", "hasbro-toy-codes-10"},
+    {"CREDITTIERB", "HSBR2013TS", "cred-tier2"},
+    {"HASBROCODEB", "HSBR2013TS", "hasbro-toy-codes-11"}
+};
+
+// Master nested map variable
+const GameRewards CHECK_KEY_REWARDS[] = {
+    {"RVMS2013AC", RVMS2013AC_REWARDS, sizeof(RVMS2013AC_REWARDS) / sizeof(RewardTuple)},
+    {"HSBR2012TS", HSBR2012TS_REWARDS, sizeof(HSBR2012TS_REWARDS) / sizeof(RewardTuple)},
+    {"HSBR2013TS", HSBR2013TS_REWARDS, sizeof(HSBR2013TS_REWARDS) / sizeof(RewardTuple)}
+};
+const int GAME_REWARDS_COUNT = sizeof(CHECK_KEY_REWARDS) / sizeof(GameRewards);
+
+bool lookup_reward(const char* type_param, const char* key_param, const char** out_type, const char** out_item) {
+    if (!type_param || !key_param) return false;
+
+    // Find the outer game group matching 'types='
+    for (int i = 0; i < GAME_REWARDS_COUNT; i++) {
+        if (strcmp(type_param, CHECK_KEY_REWARDS[i].game_type) == 0) {
+            
+            // Find the inner coupon entry matching 'key='
+            for (int j = 0; j < CHECK_KEY_REWARDS[i].rewards_count; j++) {
+                if (strcmp(key_param, CHECK_KEY_REWARDS[i].rewards[j].promo_code) == 0) {
+                    
+                    // Found absolute match! Export values out
+                    *out_type = CHECK_KEY_REWARDS[i].rewards[j].type_val;
+                    *out_item = CHECK_KEY_REWARDS[i].rewards[j].item_val;
+                    return true; 
+                }
+            }
+        }
+    }
+    return false; // Key/Type didn't match anything
+}
+
 // Helper function to extract query parameters from the HTTP request line
 void get_query_param(const char* request, const char* param_name, char* output, size_t max_len) {
     output[0] = '\0';
@@ -46,7 +109,7 @@ void handle_client(SOCKET client_socket) {
     // Log incoming traffic metadata to console
     printf("\n--- Got new request! ---\n");
     
-    // Extract parameters from the raw HTTP Request
+    // Extract common parameters from the raw HTTP Request
     char types_val[256] = {0};
     char key_val[256] = {0};
     char udid_val[256] = {0};
@@ -64,14 +127,36 @@ void handle_client(SOCKET client_socket) {
     printf("Types: %s\n", types_val);
     printf("UDID:  %s\n", udid_val);
 
-    // Simple routing check: only handle requests going to consumeKey paths
-    if (strstr(recv_buf, "GET /consumeKey/") != NULL || strstr(recv_buf, "GET /drm/consumeKey/") != NULL) {
-        
-        // Build the game success payload string matching: status=1&type=...
-        char payload[512];
-        _snprintf_s(payload, sizeof(payload), _TRUNCATE, "status=1&type=%s", types_val);
+    char payload[512] = {0};
+    bool handled = false;
 
-        // Build native HTTP/1.1 response wire envelope
+    // Route 1: Core activation paths (consumeKey)
+    if (strstr(recv_buf, "GET /consumeKey/") != NULL || strstr(recv_buf, "GET /drm/consumeKey/") != NULL) {
+        _snprintf_s(payload, sizeof(payload), _TRUNCATE, "status=1&type=%s", types_val);
+        handled = true;
+    } 
+    // Route 2: Coupon / Key validation paths (checkKey)
+    else if (strstr(recv_buf, "GET /checkKey/") != NULL || strstr(recv_buf, "GET /drm/checkKey/") != NULL) {
+        const char* out_type = NULL;
+        const char* out_item = NULL;
+
+        // Perform the nested hierarchy verification check
+        if (lookup_reward(types_val, key_val, &out_type, &out_item)) {
+            _snprintf_s(payload, sizeof(payload), _TRUNCATE, 
+                "status=1&type=%s&group=%s", 
+                out_type, out_item);
+        } 
+        else {
+            // Unrecognized keys result in a generic failed registration envelope
+            _snprintf_s(payload, sizeof(payload), _TRUNCATE, 
+                "status=0&msg=invalid-key");
+        }
+        
+        handled = true;
+    }
+
+    // Process HTTP response packaging
+    if (handled) {
         char http_response[1024];
         _snprintf_s(http_response, sizeof(http_response), _TRUNCATE,
             "HTTP/1.1 200 OK\r\n"
